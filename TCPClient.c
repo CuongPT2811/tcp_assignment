@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <regex.h>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -9,24 +11,47 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-#include <regex.h>
-#include <ctype.h>
-
 #define USERNAME_PATTERN "^[A-Za-z0-9!@#$%^&*?.\\/]{6,50}$"
 #define PASSWORD_PATTERN "^[A-Za-z0-9!@#$%^&*?.\\/]{6,50}$"
 
 #define MAX_LENGTH 1024
 #define PORT 5555
 #define SA struct sockaddr
+#define CLIENTS_FILE "clients.txt"
 
 void communicate_function(int server_fd);
 int validate_pattern(const char *input, const char *pattern);
 int validate_password(const char *password);
+int register_account();
+int login_account();
 
 int main()
 {
-    int server_fd;
+    int choice;
+    printf("1. Register\n2. Login\nChoose: ");
+    scanf("%d", &choice);
+    getchar(); // clear newline
 
+    if (choice == 1) {
+        if (!register_account()) {
+            printf("Register failed!\n");
+            exit(1);
+        }
+        printf("Register successful! Please login.\n");
+    }
+
+    if (choice == 2) {
+        if (!login_account()) {
+            printf("Login failed!\n");
+            exit(1);
+        }
+        printf("Login successful!\n");
+    } else {
+        printf("Invalid choice!\n");
+        exit(1);
+    }
+
+    int server_fd;
     struct sockaddr_in server_address;
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -58,7 +83,6 @@ int main()
 
     communicate_function(server_fd);
     close(server_fd);
-
 }
 
 void communicate_function(int server_fd)
@@ -118,4 +142,71 @@ int validate_pattern(const char *input, const char *pattern)
     result = regexec(&regex, input, 0, NULL, 0);
     regfree(&regex);
     return !result;
+}
+
+int register_account() {
+    char name[100], username[100], password[100];
+
+    printf("Enter your name: ");
+    fgets(name, sizeof(name), stdin);
+    name[strcspn(name, "\n")] = 0;
+
+    while (1) {
+        printf("Enter username: ");
+        fgets(username, sizeof(username), stdin);
+        username[strcspn(username, "\n")] = 0;
+        if (!validate_pattern(username, USERNAME_PATTERN)) {
+            printf("Invalid username! Must be 6-50 chars, allowed: A-Za-z0-9!@#$%%^&*?.\\/\n");
+            continue;
+        }
+        break;
+    }
+
+    while (1) {
+        printf("Enter password: ");
+        fgets(password, sizeof(password), stdin);
+        password[strcspn(password, "\n")] = 0;
+        if (!validate_pattern(password, PASSWORD_PATTERN) || !validate_password(password)) {
+            printf("Invalid password! Must be 6-50 chars, include upper, lower, digit, special.\n");
+            continue;
+        }
+        break;
+    }
+
+    FILE *f = fopen(CLIENTS_FILE, "a");
+    if (!f) {
+        perror("fopen");
+        return 0;
+    }
+    fprintf(f, "%s|%s|%s\n", name, username, password);
+    fclose(f);
+    return 1;
+}
+
+int login_account() {
+    char username[100], password[100], line[300];
+    printf("Enter username: ");
+    fgets(username, sizeof(username), stdin);
+    username[strcspn(username, "\n")] = 0;
+    printf("Enter password: ");
+    fgets(password, sizeof(password), stdin);
+    password[strcspn(password, "\n")] = 0;
+
+    FILE *f = fopen(CLIENTS_FILE, "r");
+    if (!f) {
+        printf("No accounts found. Please register first.\n");
+        return 0;
+    }
+    int found = 0;
+    while (fgets(line, sizeof(line), f)) {
+        char file_name[100], file_user[100], file_pass[100];
+        if (sscanf(line, "%99[^|]|%99[^|]|%99[^\n]", file_name, file_user, file_pass) == 3) {
+            if (strcmp(username, file_user) == 0 && strcmp(password, file_pass) == 0) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    fclose(f);
+    return found;
 }
